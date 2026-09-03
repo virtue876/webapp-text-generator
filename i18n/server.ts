@@ -7,23 +7,47 @@ import type { Locale } from '.'
 import { i18n } from '.'
 
 export const getLocaleOnServer = (): Locale => {
-  // @ts-expect-error locales are readonly
-  const locales: string[] = i18n.locales
+  const locales: string[] = [...i18n.locales]
 
-  let languages: string[] | undefined
-  // get locale from cookie
-  const localeCookie = cookies().get('locale')
-  languages = localeCookie?.value ? [localeCookie.value] : []
+  const localeCookie = cookies().get('locale')?.value
+  let languages: string[] = localeCookie ? [localeCookie] : []
 
   if (!languages.length) {
-    // Negotiator expects plain object so we need to transform headers
     const negotiatorHeaders: Record<string, string> = {}
-    headers().forEach((value, key) => (negotiatorHeaders[key] = value))
-    // Use negotiator and intl-localematcher to get best locale
-    languages = new Negotiator({ headers: negotiatorHeaders }).languages()
+    headers().forEach((value, key) => {
+      negotiatorHeaders[key] = value
+    })
+
+    languages = new Negotiator({
+      headers: negotiatorHeaders,
+    }).languages()
   }
 
-  // match locale
-  const matchedLocale = match(languages, locales, i18n.defaultLocale) as Locale
-  return matchedLocale
+  // 过滤 "*"、空值和非法 locale，防止 Intl 报错
+  const validLanguages = languages.filter((language) => {
+    if (!language || language === '*')
+      return false
+
+    try {
+      Intl.getCanonicalLocales(language)
+      return true
+    }
+    catch {
+      return false
+    }
+  })
+
+  if (!validLanguages.length)
+    return i18n.defaultLocale
+
+  try {
+    return match(
+      validLanguages,
+      locales,
+      i18n.defaultLocale,
+    ) as Locale
+  }
+  catch {
+    return i18n.defaultLocale
+  }
 }
